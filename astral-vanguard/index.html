@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111c28" />
+    <title>Astral Vanguard</title>
+  </head>
+  <body>
+    <main id="game" aria-label="Astral Vanguard 3D game"></main>
+    <section id="lobby" class="lobby" aria-label="Multiplayer lobby">
+      <form id="lobby-form" class="lobby-card">
+        <div class="lobby-brand">
+          <span class="eyebrow">ASTRAL VANGUARD</span>
+          <h1>CHOOSE YOUR SIDE</h1>
+          <p>Enter the shared battlefield with a team and starter kit.</p>
+        </div>
+        <label class="name-field">
+          <span>DISPLAY NAME</span>
+          <input id="display-name" name="displayName" maxlength="18" autocomplete="nickname" placeholder="Vanguard" required />
+        </label>
+        <fieldset>
+          <legend>TEAM</legend>
+          <div class="selection-grid team-grid">
+            <label class="selection-card team-card bloods">
+              <input type="radio" name="team" value="bloods" required />
+              <span class="selection-mark"></span>
+              <strong>BLOODS</strong>
+              <small>Crimson vanguard · West spawn</small>
+            </label>
+            <label class="selection-card team-card crips">
+              <input type="radio" name="team" value="crips" required />
+              <span class="selection-mark"></span>
+              <strong>CRIPS</strong>
+              <small>Azure vanguard · East spawn</small>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>STARTER KIT</legend>
+          <div class="selection-grid kit-grid">
+            <label class="selection-card kit-card">
+              <input type="radio" name="kit" value="sword" required />
+              <span class="kit-icon sword-icon" aria-hidden="true"></span>
+              <span><strong>SWORD KIT</strong><small>120 health · 150 stamina · 5-cost dash</small></span>
+            </label>
+            <label class="selection-card kit-card">
+              <input type="radio" name="kit" value="bow" required />
+              <span class="kit-icon bow-icon" aria-hidden="true"></span>
+              <span><strong>BOW KIT</strong><small>85 health · Infinite long-range arrows</small></span>
+            </label>
+          </div>
+        </fieldset>
+        <p id="lobby-status" class="lobby-status">Connecting to the shared world…</p>
+        <button id="join-game" class="join-game" type="submit" disabled>JOIN GAME</button>
+        <p class="fiction-note">Fictional fantasy teams. No real-world symbols or affiliations.</p>
+      </form>
+    </section>
+    <section id="scoreboard" class="scoreboard" aria-label="Match scoreboard" hidden>
+      <div class="team-score bloods-score"><span>BLOODS</span><strong id="bloods-score">0</strong></div>
+      <div class="match-clock"><span>FIRST TO 25</span><strong id="match-timer">10:00</strong></div>
+      <div class="team-score crips-score"><strong id="crips-score">0</strong><span>CRIPS</span></div>
+    </section>
+    <section id="player-board" class="player-board" aria-label="Players in game" hidden>
+      <div class="player-board-title"><span>PLAYERS</span><strong id="player-count">0</strong></div>
+      <div id="player-board-list"></div>
+    </section>
+    <section id="roster-panel" class="roster-panel" aria-label="Player standings" hidden>
+      <div class="roster-header"><span>PLAYER</span><span>K</span><span>D</span></div>
+      <div id="roster-list"></div>
+      <small>Hold TAB to view standings</small>
+    </section>
+    <section class="hud" aria-label="Player status">
+      <div class="meter health">
+        <span class="meter-label">HEALTH</span>
+        <div class="meter-track"><div id="health-fill" class="meter-fill"></div></div>
+        <span class="meter-value">100</span>
+      </div>
+      <div class="meter stamina">
+        <span class="meter-label">STAMINA</span>
+        <div class="meter-track"><div id="stamina-fill" class="meter-fill"></div></div>
+        <span id="stamina-value" class="meter-value">100</span>
+      </div>
+      <div id="fps" class="fps">60 FPS</div>
+    </section>
+    <section class="action-bar" aria-label="Combat abilities">
+      <div id="slot-quick" class="ability-slot ready" aria-label="Slot 1 Quick Slash">
+        <span class="slot-key">1</span>
+        <span class="ability-icon quick" aria-hidden="true"></span>
+        <span id="quick-name" class="ability-name">QUICK SLASH</span>
+        <span class="mouse-hint">LMB</span>
+        <span id="quick-cooldown" class="cooldown-time"></span>
+        <span id="quick-cooldown-fill" class="cooldown-fill"></span>
+      </div>
+      <div id="slot-special" class="ability-slot special ready" aria-label="Slot 2 Ground Strike">
+        <span class="slot-key">2</span>
+        <span class="ability-icon ground" aria-hidden="true"></span>
+        <span id="special-name" class="ability-name">GROUND STRIKE</span>
+        <span class="mouse-hint">RMB</span>
+        <span id="special-cooldown" class="cooldown-time"></span>
+        <span id="special-cooldown-fill" class="cooldown-fill"></span>
+      </div>
+      <div id="slot-dash" class="ability-slot dash-slot ready" aria-label="Dash">
+        <span class="slot-key">Q</span>
+        <span class="ability-icon dash-icon" aria-hidden="true"></span>
+        <span class="ability-name">KNIGHT DASH</span>
+        <span id="dash-cooldown" class="cooldown-time"></span>
+        <span id="dash-cooldown-fill" class="cooldown-fill"></span>
+      </div>
+    </section>
+    <div id="bow-crosshair" class="bow-crosshair" aria-hidden="true" hidden>
+      <span class="crosshair-line top"></span><span class="crosshair-line right"></span>
+      <span class="crosshair-line bottom"></span><span class="crosshair-line left"></span>
+      <span class="crosshair-dot"></span>
+      <span class="draw-ring"></span>
+      <span class="aim-hint">HOLD LMB · RELEASE TO FIRE</span>
+    </div>
+    <section id="death-screen" class="death-screen" aria-label="Respawn" hidden>
+      <div class="death-card">
+        <span class="death-kicker">ASTRAL VANGUARD</span>
+        <h2>YOU HAVE FALLEN</h2>
+        <button id="respawn-button" type="button" disabled>RESPAWNING</button>
+        <span id="respawn-hint" class="respawn-hint">3 SECONDS</span>
+      </div>
+    </section>
+    <section id="winner-screen" class="winner-screen" aria-label="Match result" hidden>
+      <div class="winner-card">
+        <span class="eyebrow">MATCH COMPLETE</span>
+        <h2 id="winner-title">BLOODS WIN</h2>
+        <p id="winner-score">25 — 18</p>
+        <button id="rematch-button" type="button">START REMATCH</button>
+      </div>
+    </section>
+    <div class="vignette" aria-hidden="true"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
