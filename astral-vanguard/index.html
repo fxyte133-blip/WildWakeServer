@@ -17,7 +17,7 @@
         </div>
         <label class="name-field">
           <span>DISPLAY NAME</span>
-          <input id="display-name" name="displayName" maxlength="18" autocomplete="nickname" placeholder="Vanguard" required />
+          <input id="display-name" name="displayName" maxlength="24" autocomplete="nickname" placeholder="Vanguard" required />
         </label>
         <fieldset>
           <legend>TEAM</legend>
@@ -60,6 +60,11 @@
       <div class="team-score bloods-score"><span>BLOODS</span><strong id="bloods-score">0</strong></div>
       <div class="match-clock"><span>FIRST TO 25</span><strong id="match-timer">10:00</strong></div>
       <div class="team-score crips-score"><strong id="crips-score">0</strong><span>CRIPS</span></div>
+    </section>
+    <section id="supply-status" class="supply-status" aria-label="Supply drop status" hidden>
+      <span id="supply-label">NEXT SUPPLY DROP</span>
+      <strong id="supply-timer">0:20</strong>
+      <small id="supply-message">60% AK-47 · 40% RPG</small>
     </section>
     <section id="player-board" class="player-board" aria-label="Players in game" hidden>
       <div class="player-board-title"><span>PLAYERS</span><strong id="player-count">0</strong></div>
@@ -107,6 +112,11 @@
         <span id="dash-cooldown" class="cooldown-time"></span>
         <span id="dash-cooldown-fill" class="cooldown-fill"></span>
       </div>
+    </section>
+    <section id="ammo-counter" class="ammo-counter" aria-live="polite" hidden>
+      <span id="ammo-weapon">AK-47</span>
+      <strong id="ammo-value">80</strong>
+      <small id="ammo-unit">ROUNDS</small>
     </section>
     <div id="bow-crosshair" class="bow-crosshair" aria-hidden="true" hidden>
       <span class="crosshair-line top"></span><span class="crosshair-line right"></span>

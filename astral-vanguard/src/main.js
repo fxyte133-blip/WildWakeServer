@@ -136,6 +136,48 @@ function playGroundStomp() {
   game.dataset.lastSound = 'stomp';
 }
 
+function playSupplyWeaponSound(weapon) {
+  const context = ensureAudio();
+  if (!context) return;
+  const now = context.currentTime;
+  const blast = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  blast.buffer = noiseBuffer(weapon === 'rpg' ? .38 : .12);
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(weapon === 'rpg' ? 520 : 1900, now);
+  filter.frequency.exponentialRampToValueAtTime(weapon === 'rpg' ? 90 : 420, now + (weapon === 'rpg' ? .36 : .1));
+  gain.gain.setValueAtTime(weapon === 'rpg' ? .34 : .16, now);
+  gain.gain.exponentialRampToValueAtTime(.0001, now + (weapon === 'rpg' ? .38 : .12));
+  blast.connect(filter).connect(gain).connect(audioMaster);
+  blast.start(now);
+  game.dataset.lastSound = weapon;
+}
+
+function playExplosionSound() {
+  const context = ensureAudio();
+  if (!context) return;
+  const now = context.currentTime;
+  const boom = context.createOscillator();
+  const boomGain = context.createGain();
+  boom.type = 'sine';
+  boom.frequency.setValueAtTime(86, now);
+  boom.frequency.exponentialRampToValueAtTime(22, now + .55);
+  boomGain.gain.setValueAtTime(.42, now);
+  boomGain.gain.exponentialRampToValueAtTime(.0001, now + .58);
+  boom.connect(boomGain).connect(audioMaster);
+  boom.start(now);
+  boom.stop(now + .6);
+  const debris = context.createBufferSource();
+  const debrisGain = context.createGain();
+  debris.buffer = noiseBuffer(.68);
+  debrisGain.gain.setValueAtTime(.3, now);
+  debrisGain.gain.exponentialRampToValueAtTime(.0001, now + .68);
+  debris.connect(debrisGain).connect(audioMaster);
+  debris.start(now);
+  game.dataset.lastSound = 'rpg-explosion';
+}
+
 function updateMovementAudio(dt) {
   if (state.dead || !state.grounded || !state.moving || state.attack) {
     footstepTimer = Math.min(footstepTimer, .08);
@@ -149,9 +191,9 @@ function updateMovementAudio(dt) {
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xa8c3ba, 0.0115);
+scene.fog = new THREE.FogExp2(0xa8c3ba, 0.0072);
 
-const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.08, 360);
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.08, 520);
 camera.position.set(6.5, 5.1, -8.7);
 
 const palette = {
@@ -222,7 +264,7 @@ function createSky() {
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
-  scene.add(new THREE.Mesh(new THREE.SphereGeometry(240, 32, 18), material));
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(420, 32, 18), material));
 }
 createSky();
 
@@ -233,15 +275,16 @@ const sun = new THREE.DirectionalLight(0xffe2bc, 4.4);
 sun.position.set(-34, 46, -28);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -38;
-sun.shadow.camera.right = 38;
-sun.shadow.camera.top = 38;
-sun.shadow.camera.bottom = -38;
+sun.shadow.camera.left = -82;
+sun.shadow.camera.right = 82;
+sun.shadow.camera.top = 82;
+sun.shadow.camera.bottom = -82;
 sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 110;
+sun.shadow.camera.far = 220;
 sun.shadow.bias = -0.00045;
 sun.shadow.normalBias = .035;
 scene.add(sun);
+scene.add(sun.target);
 
 const rim = new THREE.DirectionalLight(0x8fc2d5, 1.35);
 rim.position.set(18, 18, 22);
@@ -255,6 +298,10 @@ function heightAt(x, z) {
     + hill(34, 36, 5.4, 28)
     + hill(-38, -34, 3.5, 20)
     + hill(41, -25, 3.0, 19)
+    + hill(-92, 74, 7.2, 42)
+    + hill(104, 88, 8.5, 48)
+    + hill(-108, -82, 6.6, 39)
+    + hill(96, -105, 7.4, 44)
     - hill(0, 0, .25, 18);
 }
 
@@ -266,8 +313,8 @@ function seeded(seed = 9127) {
 }
 const random = seeded();
 
-const terrainSize = 170;
-const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 128, 128);
+const terrainSize = 320;
+const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 160, 160);
 terrainGeometry.rotateX(-Math.PI / 2);
 const terrainPos = terrainGeometry.attributes.position;
 const terrainColors = [];
@@ -289,6 +336,42 @@ const terrain = shadow(new THREE.Mesh(terrainGeometry, terrainMaterial), false, 
 scene.add(terrain);
 
 const collisionMeshes = [terrain];
+const worldObstacles = [];
+const playerObstacleRadius = .46;
+
+function resolveWorldObstacles(position, velocity) {
+  for (let pass = 0; pass < 3; pass++) {
+    worldObstacles.forEach((obstacle) => {
+      const dx = position.x - obstacle.x;
+      const dz = position.z - obstacle.z;
+      const minimumDistance = playerObstacleRadius + obstacle.radius;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq >= minimumDistance * minimumDistance) return;
+      const distance = Math.sqrt(distanceSq);
+      const normalX = distance > .0001 ? dx / distance : Math.sin(hero.rotation.y + Math.PI);
+      const normalZ = distance > .0001 ? dz / distance : Math.cos(hero.rotation.y + Math.PI);
+      position.x = obstacle.x + normalX * minimumDistance;
+      position.z = obstacle.z + normalZ * minimumDistance;
+      const inwardSpeed = velocity.x * normalX + velocity.z * normalZ;
+      if (inwardSpeed < 0) {
+        velocity.x -= inwardSpeed * normalX;
+        velocity.z -= inwardSpeed * normalZ;
+      }
+    });
+  }
+}
+
+function moveHeroWithCollisions(deltaX, deltaZ, velocity) {
+  const distance = Math.hypot(deltaX, deltaZ);
+  const steps = Math.max(1, Math.ceil(distance / .16));
+  const stepX = deltaX / steps;
+  const stepZ = deltaZ / steps;
+  for (let i = 0; i < steps; i++) {
+    hero.position.x += stepX;
+    hero.position.z += stepZ;
+    resolveWorldObstacles(hero.position, velocity);
+  }
+}
 
 function createGrass() {
   const blade = new THREE.ConeGeometry(.045, .38, 3, 1);
@@ -307,14 +390,14 @@ function createGrass() {
           transformed.z += bend * .45 * uv.y;
         #endif`);
   };
-  const count = 1050;
+  const count = 2300;
   const mesh = new THREE.InstancedMesh(blade, material, count);
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   const dummy = new THREE.Object3D();
   for (let i = 0; i < count; i++) {
     const angle = random() * TAU;
-    const radius = 5 + Math.sqrt(random()) * 72;
+    const radius = 5 + Math.sqrt(random()) * 140;
     const x = Math.cos(angle) * radius;
     const z = Math.sin(angle) * radius;
     dummy.position.set(x, heightAt(x, z), z);
@@ -344,6 +427,7 @@ function createRock(x, z, scale = 1) {
   rock.rotation.set(random() * .4, random() * TAU, random() * .22);
   scene.add(rock);
   collisionMeshes.push(rock);
+  worldObstacles.push({ x, z, radius: .78 * scale, type: 'rock' });
 }
 
 function createTree(x, z, scale = 1) {
@@ -368,6 +452,7 @@ function createTree(x, z, scale = 1) {
   });
   scene.add(tree);
   collisionMeshes.push(trunk);
+  worldObstacles.push({ x, z, radius: .55 * scale, type: 'tree' });
 }
 
 [
@@ -379,6 +464,96 @@ function createTree(x, z, scale = 1) {
   [-7, 8, .65], [10, 12, 1.0], [-14, -7, .85], [18, -11, .72], [25, 28, 1.2],
   [-25, 26, .95], [5, -26, .6], [37, 2, 1.1], [-34, -26, 1.25], [14, 5, .38],
 ].forEach((p) => createRock(...p));
+
+for (let i = 0; i < 22; i++) {
+  const angle = random() * TAU;
+  const radius = 72 + random() * 68;
+  createTree(Math.cos(angle) * radius, Math.sin(angle) * radius, .82 + random() * .42);
+}
+for (let i = 0; i < 30; i++) {
+  const angle = random() * TAU;
+  const radius = 65 + random() * 78;
+  createRock(Math.cos(angle) * radius, Math.sin(angle) * radius, .45 + random() * .9);
+}
+
+const smallRockGeometry = new THREE.DodecahedronGeometry(1, 0);
+const smallRockPositions = smallRockGeometry.attributes.position;
+for (let i = 0; i < smallRockPositions.count; i++) {
+  const y = smallRockPositions.getY(i);
+  smallRockPositions.setXYZ(i, smallRockPositions.getX(i) * (1 + y * .05), y * .48, smallRockPositions.getZ(i) * .78);
+}
+smallRockGeometry.computeVertexNormals();
+const smallRockMaterials = [
+  new THREE.MeshStandardMaterial({ color: 0x717970, roughness: .96, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0x59635d, roughness: .97, flatShading: true }),
+  new THREE.MeshStandardMaterial({ color: 0x7d786c, roughness: .95, flatShading: true }),
+];
+
+function createSmallRock(x, z, scale, variant) {
+  const rock = shadow(new THREE.Mesh(smallRockGeometry, smallRockMaterials[variant % smallRockMaterials.length]));
+  rock.position.set(x, heightAt(x, z) + scale * .17, z);
+  rock.rotation.set((random() - .5) * .42, random() * TAU, (random() - .5) * .34);
+  const widthScale = scale * (1 + random() * .3);
+  rock.scale.set(widthScale, scale * (.7 + random() * .25), scale);
+  scene.add(rock);
+  collisionMeshes.push(rock);
+  worldObstacles.push({ x, z, radius: .72 * widthScale, type: 'small-rock' });
+}
+
+for (let i = 0; i < 48; i++) {
+  const angle = random() * TAU;
+  const radius = 14 + Math.sqrt(random()) * 125;
+  createSmallRock(Math.cos(angle) * radius, Math.sin(angle) * radius, .16 + random() * .28, i);
+}
+game.dataset.worldObstacleCount = String(worldObstacles.length);
+
+function createTeamSpawnSign(name, x, color, glow, panel) {
+  const z = 0;
+  const sign = new THREE.Group();
+  sign.position.set(x, heightAt(x, z) + 9.5, z);
+  sign.userData.baseY = sign.position.y;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.beginPath();
+  context.roundRect(28, 30, 968, 196, 34);
+  context.fillStyle = panel;
+  context.fill();
+  context.lineWidth = 9;
+  context.strokeStyle = color;
+  context.stroke();
+  context.font = '900 134px system-ui, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineWidth = 18;
+  context.strokeStyle = 'rgba(8, 12, 22, .96)';
+  context.strokeText(name, 512, 130);
+  context.fillStyle = color;
+  context.shadowColor = glow;
+  context.shadowBlur = 34;
+  context.fillText(name, 512, 130);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, depthTest: false }));
+  label.scale.set(12.8, 3.2, 1);
+  label.renderOrder = 60;
+  sign.add(label);
+  scene.add(sign);
+  return sign;
+}
+
+const teamSpawnSigns = [
+  createTeamSpawnSign('BLOODS', -58, '#ff6a74', '#ff334d', 'rgba(48, 8, 16, .8)'),
+  createTeamSpawnSign('CRIPS', 58, '#78a9ff', '#2f79ff', 'rgba(7, 18, 48, .8)'),
+];
+
+function updateTeamSpawnSigns(time) {
+  teamSpawnSigns.forEach((sign, index) => {
+    sign.position.y = sign.userData.baseY + Math.sin(time * 1.15 + index * Math.PI) * .12;
+  });
+}
 
 function createCloud(x, y, z, scale) {
   const group = new THREE.Group();
@@ -601,6 +776,299 @@ function createQuiver() {
     quiver.add(arrow);
   }
   return quiver;
+}
+
+function createAK47() {
+  const weapon = new THREE.Group();
+  weapon.name = 'Supply AK-47';
+  const gunMetal = new THREE.MeshStandardMaterial({ color: 0x252b2d, roughness: .34, metalness: .72 });
+  const wood = new THREE.MeshStandardMaterial({ color: 0x704127, roughness: .76, metalness: .02 });
+  addMesh(weapon, rounded(.24, .72, .18, .035, gunMetal, 2), [0, .25, 0]);
+  addMesh(weapon, lowCylinder(.045, .055, .85, 8, gunMetal), [0, .98, 0]);
+  addMesh(weapon, lowCylinder(.065, .065, .18, 8, gunMetal), [0, 1.48, 0]);
+  addMesh(weapon, rounded(.21, .55, .2, .04, wood, 2), [0, -.38, .01], [0, 0, -.08]);
+  addMesh(weapon, rounded(.18, .48, .17, .035, wood, 2), [.02, .66, .03], [.1, 0, 0]);
+  addMesh(weapon, rounded(.145, .44, .115, .035, wood, 2), [.02, .01, -.16], [-.34, 0, 0]);
+  addMesh(weapon, rounded(.23, .08, .2, .025, gunMetal, 1), [0, .58, 0]);
+  const bolt = addMesh(weapon, rounded(.1, .26, .055, .018, materials.silver, 1), [-.13, .39, 0]);
+  weapon.userData.bolt = bolt;
+  weapon.userData.boltRestY = bolt.position.y;
+  const magazine = rounded(.16, .48, .12, .04, gunMetal, 2);
+  magazine.position.set(0, .2, -.16);
+  magazine.rotation.x = -.32;
+  magazine.scale.y = .82;
+  weapon.add(magazine);
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'AK-47 muzzle';
+  muzzle.position.set(0, 1.61, 0);
+  weapon.add(muzzle);
+  weapon.userData.muzzle = muzzle;
+  const muzzleFlash = new THREE.Group();
+  const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: .9, depthWrite: false, blending: THREE.AdditiveBlending });
+  const flashCore = new THREE.Mesh(new THREE.ConeGeometry(.12, .34, 7), flashMaterial);
+  flashCore.position.y = .17;
+  muzzleFlash.add(flashCore);
+  const flashCross = new THREE.Mesh(new THREE.OctahedronGeometry(.13, 0), flashMaterial.clone());
+  flashCross.scale.set(1.65, 1.1, 1.65);
+  flashCross.position.y = .08;
+  muzzleFlash.add(flashCross);
+  muzzleFlash.visible = false;
+  muzzle.add(muzzleFlash);
+  weapon.userData.muzzleFlash = muzzleFlash;
+  return weapon;
+}
+
+function createRPG() {
+  const weapon = new THREE.Group();
+  weapon.name = 'Supply RPG';
+  const tubeMat = new THREE.MeshStandardMaterial({ color: 0x405343, roughness: .67, metalness: .26 });
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x242b29, roughness: .45, metalness: .6 });
+  addMesh(weapon, lowCylinder(.12, .12, 1.68, 12, tubeMat), [0, .45, 0]);
+  addMesh(weapon, lowCylinder(.18, .13, .3, 10, darkMetal), [0, 1.42, 0]);
+  addMesh(weapon, lowCylinder(.17, .14, .24, 10, darkMetal), [0, -.53, 0]);
+  addMesh(weapon, rounded(.18, .46, .15, .035, darkMetal, 2), [0, .12, -.2], [-.42, 0, 0]);
+  addMesh(weapon, new THREE.Mesh(new THREE.ConeGeometry(.14, .38, 10), new THREE.MeshStandardMaterial({ color: 0x5f6d51, roughness: .7, metalness: .14 })), [0, 1.73, 0]);
+  const muzzle = new THREE.Object3D();
+  muzzle.name = 'RPG muzzle';
+  muzzle.position.set(0, 1.94, 0);
+  weapon.add(muzzle);
+  weapon.userData.muzzle = muzzle;
+  return weapon;
+}
+
+function setAKRestTransform(weapon) {
+  weapon.userData.restPosition = weapon.position.clone();
+  weapon.userData.restRotation = weapon.rotation.clone();
+}
+
+function updateAKAnimation(weapon, kick, time) {
+  if (!weapon?.userData.restPosition) return;
+  weapon.position.copy(weapon.userData.restPosition);
+  weapon.position.y -= kick * .13;
+  weapon.position.z += kick * .025;
+  weapon.rotation.copy(weapon.userData.restRotation);
+  weapon.rotation.z -= kick * .055;
+  const bolt = weapon.userData.bolt;
+  if (bolt) bolt.position.y = weapon.userData.boltRestY - kick * .16;
+  const flash = weapon.userData.muzzleFlash;
+  if (flash) {
+    flash.visible = weapon.visible && kick > .18;
+    if (flash.visible) {
+      const flicker = .82 + Math.sin(time * 95) * .18;
+      flash.scale.set(flicker, .8 + kick * .75, flicker);
+      flash.rotation.y = time * 38;
+    }
+  }
+}
+
+const supplyDropObjects = new Map();
+const activeTracers = [];
+const activeRockets = new Map();
+const activeExplosions = [];
+const supplyCrateMaterial = new THREE.MeshStandardMaterial({ color: 0x5d704b, roughness: .78, metalness: .08 });
+const supplyBandMaterial = new THREE.MeshStandardMaterial({ color: 0xc99b48, roughness: .46, metalness: .42 });
+
+function createSupplyDropObject(payload) {
+  removeSupplyDropObject(payload.id);
+  const group = new THREE.Group();
+  group.name = `Supply drop ${payload.id}`;
+  const crate = rounded(1.55, 1.05, 1.35, .1, supplyCrateMaterial, 2);
+  crate.position.y = .55;
+  group.add(crate);
+  addMesh(group, rounded(1.7, .16, 1.47, .04, supplyBandMaterial, 1), [0, .55, 0]);
+  addMesh(group, rounded(.18, 1.18, 1.47, .04, supplyBandMaterial, 1), [0, .55, 0]);
+  const beacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(.12, .36, 2.4, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color: payload.weapon === 'rpg' ? 0xff7a3d : 0xffd45d, transparent: true, opacity: .22, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }),
+  );
+  beacon.position.y = 1.7;
+  group.add(beacon);
+  const chute = new THREE.Mesh(
+    new THREE.SphereGeometry(2.35, 18, 10, 0, TAU, 0, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: payload.weapon === 'rpg' ? 0x8b4634 : 0x735d32, roughness: .9, side: THREE.DoubleSide }),
+  );
+  chute.scale.y = .42;
+  chute.position.y = 5.2;
+  group.add(chute);
+  const cordMaterial = new THREE.LineBasicMaterial({ color: 0xd4c49e, transparent: true, opacity: .7 });
+  [-1, 1].forEach((x) => [-1, 1].forEach((z) => {
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x * .58, 1.05, z * .52), new THREE.Vector3(x * 1.45, 4.95, z * 1.3),
+    ]), cordMaterial);
+    group.add(line);
+  }));
+  group.position.set(payload.position.x, payload.position.y || 48, payload.position.z);
+  scene.add(group);
+  supplyDropObjects.set(payload.id, {
+    ...payload,
+    group,
+    chute,
+    groundY: heightAt(payload.position.x, payload.position.z),
+  });
+}
+
+function removeSupplyDropObject(id) {
+  const drop = supplyDropObjects.get(id);
+  if (!drop) return;
+  scene.remove(drop.group);
+  supplyDropObjects.delete(id);
+}
+
+function updateSupplyDrops() {
+  const now = Date.now();
+  supplyDropObjects.forEach((drop) => {
+    const duration = Math.max(1, drop.landedAt - drop.spawnedAt);
+    const progress = clamp((now - drop.spawnedAt) / duration, 0, 1);
+    const eased = THREE.MathUtils.smootherstep(progress, 0, 1);
+    drop.group.position.y = lerp(48, drop.groundY, eased);
+    drop.group.rotation.y += .0025 * (1 - progress);
+    drop.chute.visible = progress < .98;
+    drop.group.children.forEach((child) => {
+      if (child.isLine) child.visible = progress < .98;
+    });
+    if (progress >= 1) drop.group.position.y = drop.groundY + Math.sin(performance.now() * .003) * .025;
+  });
+}
+
+function spawnTracer(payload) {
+  const origin = new THREE.Vector3(payload.origin.x, payload.origin.y, payload.origin.z);
+  const target = new THREE.Vector3(payload.target.x, payload.target.y, payload.target.z);
+  const direction = target.clone().sub(origin).normalize();
+  const points = [origin.clone(), origin.clone().addScaledVector(direction, .18)];
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color: 0xffe59c, transparent: true, opacity: .94, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  const bullet = new THREE.Mesh(
+    new THREE.SphereGeometry(.055, 6, 4),
+    new THREE.MeshBasicMaterial({ color: 0xfff1ae, transparent: true, opacity: .96, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  bullet.position.copy(origin);
+  scene.add(line);
+  scene.add(bullet);
+  activeTracers.push({ line, bullet, origin, target, direction, distance: origin.distanceTo(target), age: 0, speed: 520 });
+}
+
+function spawnRocket(payload) {
+  const group = new THREE.Group();
+  const rocketMaterial = new THREE.MeshStandardMaterial({ color: 0x59674b, roughness: .55, metalness: .24 });
+  addMesh(group, lowCylinder(.08, .1, .62, 8, rocketMaterial), [0, 0, 0]);
+  addMesh(group, new THREE.Mesh(new THREE.ConeGeometry(.1, .24, 8), rocketMaterial), [0, .43, 0]);
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(.09, .38, 8), new THREE.MeshBasicMaterial({ color: 0xff8b35, transparent: true, opacity: .82, blending: THREE.AdditiveBlending }));
+  flame.position.y = -.48;
+  flame.rotation.x = Math.PI;
+  group.add(flame);
+  const origin = new THREE.Vector3(payload.origin.x, payload.origin.y, payload.origin.z);
+  const target = new THREE.Vector3(payload.target.x, payload.target.y, payload.target.z);
+  group.position.copy(origin);
+  group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), target.clone().sub(origin).normalize());
+  scene.add(group);
+  activeRockets.set(`${payload.id}-${payload.serial}`, { group, origin, target, startedAt: performance.now(), speed: payload.speed || 65 });
+}
+
+function spawnRPGExplosion(payload) {
+  const ground = new THREE.Vector3(payload.position.x, heightAt(payload.position.x, payload.position.z) + .08, payload.position.z);
+  const explosion = { age: 0, pieces: [], puffs: [], ring: null, flash: null };
+  for (let i = 0; i < 84; i++) {
+    const piece = new THREE.Mesh(new THREE.IcosahedronGeometry(.11 + Math.random() * .08, 0), dirtMaterials[i % dirtMaterials.length]);
+    const angle = Math.random() * TAU;
+    const speed = 6 + Math.random() * 18;
+    piece.position.copy(ground).add(new THREE.Vector3((Math.random() - .5) * .7, Math.random() * .25, (Math.random() - .5) * .7));
+    piece.userData.velocity = new THREE.Vector3(Math.cos(angle) * speed, 7 + Math.random() * 14, Math.sin(angle) * speed);
+    piece.userData.spin = new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(15);
+    piece.castShadow = true;
+    scene.add(piece);
+    explosion.pieces.push(piece);
+  }
+  for (let i = 0; i < 32; i++) {
+    const puff = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(.35 + Math.random() * .3, 1),
+      new THREE.MeshBasicMaterial({ color: i < 7 ? 0xff8b42 : 0x665846, transparent: true, opacity: i < 7 ? .72 : .48, depthWrite: false, blending: i < 7 ? THREE.AdditiveBlending : THREE.NormalBlending }),
+    );
+    const angle = Math.random() * TAU;
+    puff.position.copy(ground).add(new THREE.Vector3(Math.cos(angle) * Math.random() * 1.2, .2 + Math.random() * 1.1, Math.sin(angle) * Math.random() * 1.2));
+    puff.userData.velocity = new THREE.Vector3(Math.cos(angle) * (3 + Math.random() * 10), 3 + Math.random() * 10, Math.sin(angle) * (3 + Math.random() * 10));
+    scene.add(puff);
+    explosion.puffs.push(puff);
+  }
+  explosion.ring = new THREE.Mesh(new THREE.RingGeometry(.6, 1.05, 42), new THREE.MeshBasicMaterial({ color: 0xffb05b, transparent: true, opacity: .82, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  explosion.ring.rotation.x = -Math.PI / 2;
+  explosion.ring.position.copy(ground);
+  scene.add(explosion.ring);
+  activeExplosions.push(explosion);
+  const distance = hero.position.distanceTo(ground);
+  if (distance < 56) addShake(.68 * (1 - distance / 64));
+  playExplosionSound();
+  [...activeRockets.entries()].forEach(([key, rocket]) => {
+    if (rocket.target.distanceTo(new THREE.Vector3(payload.position.x, payload.position.y, payload.position.z)) < 2.5) {
+      scene.remove(rocket.group);
+      activeRockets.delete(key);
+    }
+  });
+}
+
+function updateSupplyProjectiles(dt) {
+  activeTracers.forEach((tracer) => {
+    tracer.age += dt;
+    const headDistance = Math.min(tracer.distance, tracer.age * tracer.speed);
+    const tailDistance = Math.max(0, headDistance - 4.2);
+    const tail = tracer.origin.clone().addScaledVector(tracer.direction, tailDistance);
+    const head = tracer.origin.clone().addScaledVector(tracer.direction, headDistance);
+    tracer.line.geometry.setFromPoints([tail, head]);
+    tracer.bullet.position.copy(head);
+    const finishing = tracer.distance - headDistance < .01;
+    tracer.line.material.opacity = finishing ? Math.max(0, 1 - (tracer.age - tracer.distance / tracer.speed) * 18) : .94;
+    tracer.bullet.material.opacity = tracer.line.material.opacity;
+  });
+  for (let i = activeTracers.length - 1; i >= 0; i--) {
+    const tracer = activeTracers[i];
+    if (tracer.age > tracer.distance / tracer.speed + .07) {
+      scene.remove(tracer.line);
+      scene.remove(tracer.bullet);
+      tracer.line.geometry.dispose();
+      tracer.line.material.dispose();
+      tracer.bullet.geometry.dispose();
+      tracer.bullet.material.dispose();
+      activeTracers.splice(i, 1);
+    }
+  }
+  activeRockets.forEach((rocket) => {
+    const distance = rocket.origin.distanceTo(rocket.target);
+    const progress = clamp((performance.now() - rocket.startedAt) / Math.max(1, distance / rocket.speed * 1000), 0, 1);
+    rocket.group.position.lerpVectors(rocket.origin, rocket.target, progress);
+  });
+  for (let i = activeExplosions.length - 1; i >= 0; i--) {
+    const explosion = activeExplosions[i];
+    explosion.age += dt;
+    explosion.pieces.forEach((piece) => {
+      piece.userData.velocity.y -= 18 * dt;
+      piece.position.addScaledVector(piece.userData.velocity, dt);
+      piece.rotation.x += piece.userData.spin.x * dt;
+      piece.rotation.y += piece.userData.spin.y * dt;
+      const floor = heightAt(piece.position.x, piece.position.z) + .03;
+      if (piece.position.y < floor) {
+        piece.position.y = floor;
+        piece.userData.velocity.y *= -.2;
+        piece.userData.velocity.x *= .72;
+        piece.userData.velocity.z *= .72;
+      }
+      piece.scale.multiplyScalar(Math.exp(-.7 * dt));
+    });
+    explosion.puffs.forEach((puff) => {
+      puff.position.addScaledVector(puff.userData.velocity, dt);
+      puff.userData.velocity.multiplyScalar(Math.exp(-2.2 * dt));
+      puff.scale.addScalar(dt * 2.4);
+      puff.material.opacity = Math.max(0, puff.material.opacity - dt * .48);
+    });
+    explosion.ring.scale.setScalar(1 + explosion.age * 18.5);
+    explosion.ring.material.opacity = Math.max(0, .88 - explosion.age * 1.45);
+    if (explosion.age > 1.25) {
+      explosion.pieces.forEach((piece) => scene.remove(piece));
+      explosion.puffs.forEach((puff) => scene.remove(puff));
+      scene.remove(explosion.ring);
+      activeExplosions.splice(i, 1);
+    }
+  }
 }
 
 function createCapeGeometry() {
@@ -850,6 +1318,20 @@ function createHero() {
   swordGripAnchor.add(sword);
   refs.swordGripAnchor = swordGripAnchor;
   refs.sword = sword;
+  const ak47 = createAK47();
+  ak47.scale.setScalar(.86);
+  ak47.position.set(0, -.015, .055);
+  ak47.rotation.set(0, 0, -.015);
+  ak47.visible = false;
+  swordGripAnchor.add(ak47);
+  setAKRestTransform(ak47);
+  refs.ak47 = ak47;
+  const rpg = createRPG();
+  rpg.scale.setScalar(.76);
+  rpg.position.set(0, -.05, .02);
+  rpg.visible = false;
+  swordGripAnchor.add(rpg);
+  refs.rpg = rpg;
 
   const bowGripAnchor = new THREE.Group();
   bowGripAnchor.position.set(0, .02, .08);
@@ -962,6 +1444,9 @@ const state = {
   name: '',
   team: null,
   kit: null,
+  weapon: null,
+  weaponAmmo: 0,
+  weaponKick: 0,
   health: 100,
   maxHealth: 100,
   arrows: 0,
@@ -1011,9 +1496,19 @@ const winnerScore = document.querySelector('#winner-score');
 const rematchButton = document.querySelector('#rematch-button');
 const quickName = document.querySelector('#quick-name');
 const specialName = document.querySelector('#special-name');
+const ammoCounter = document.querySelector('#ammo-counter');
+const ammoWeapon = document.querySelector('#ammo-weapon');
+const ammoValue = document.querySelector('#ammo-value');
+const ammoUnit = document.querySelector('#ammo-unit');
 const bowCrosshair = document.querySelector('#bow-crosshair');
+const aimHint = bowCrosshair.querySelector('.aim-hint');
 const respawnHint = document.querySelector('#respawn-hint');
+const supplyStatus = document.querySelector('#supply-status');
+const supplyLabel = document.querySelector('#supply-label');
+const supplyTimer = document.querySelector('#supply-timer');
+const supplyMessage = document.querySelector('#supply-message');
 let currentMatch = null;
+let nextSupplyDropAt = Date.now() + 20_000;
 document.body.classList.add('in-lobby');
 
 function updateStaminaHUD() {
@@ -1025,6 +1520,8 @@ function configureLocalProfile(profile) {
   state.name = profile.name;
   state.team = profile.team;
   state.kit = profile.kit;
+  state.weapon = profile.weapon === 'ak47' || profile.weapon === 'rpg' ? profile.weapon : null;
+  state.weaponAmmo = Number.isFinite(Number(profile.weaponAmmo)) ? Number(profile.weaponAmmo) : 0;
   state.maxHealth = profile.maxHealth || (profile.kit === 'sword' ? 120 : 85);
   state.maxStamina = profile.kit === 'sword' ? 150 : 100;
   state.stamina = state.maxStamina;
@@ -1043,11 +1540,13 @@ function configureLocalProfile(profile) {
   abilityUI.heavy.slot.classList.toggle('ammo-slot', state.kit === 'bow');
   abilityUI.dash.slot.hidden = state.kit !== 'sword';
   bowCrosshair.hidden = state.kit !== 'bow';
+  setLocalWeapon(state.weapon, state.weaponAmmo);
 }
 
 function updateMatchUI(next) {
   if (!next) return;
   currentMatch = next;
+  if (Number.isFinite(Number(next.nextSupplyDropAt))) nextSupplyDropAt = Number(next.nextSupplyDropAt);
   document.querySelector('#bloods-score').textContent = next.scores?.bloods ?? 0;
   document.querySelector('#crips-score').textContent = next.scores?.crips ?? 0;
   const seconds = Math.max(0, Math.ceil((next.remaining ?? next.duration ?? 0) / 1000));
@@ -1056,7 +1555,13 @@ function updateMatchUI(next) {
   rosterList.replaceChildren(...orderedRoster.map((player) => {
     const row = document.createElement('div');
     row.className = `roster-row ${player.team}`;
-    row.innerHTML = `<span>${player.name} · ${player.kit}</span><span>${player.kills}</span><span>${player.deaths}</span>`;
+    const identity = document.createElement('span');
+    identity.textContent = `${player.name} · ${player.weapon || player.kit}`;
+    const kills = document.createElement('span');
+    kills.textContent = String(player.kills);
+    const deaths = document.createElement('span');
+    deaths.textContent = String(player.deaths);
+    row.append(identity, kills, deaths);
     return row;
   }));
   playerCount.textContent = String(orderedRoster.length);
@@ -1070,10 +1575,28 @@ function updateMatchUI(next) {
     name.textContent = player.name;
     const kit = document.createElement('span');
     kit.className = 'player-board-kit';
-    kit.textContent = player.kit;
+    kit.textContent = player.weapon || player.kit;
     row.append(dot, name, kit);
     return row;
   }));
+}
+
+function updateSupplyHUD() {
+  if (!state.joined) return;
+  supplyStatus.hidden = false;
+  const active = supplyDropObjects.size > 0;
+  supplyStatus.classList.toggle('active', active);
+  if (active) {
+    const landed = [...supplyDropObjects.values()].some((drop) => Date.now() >= drop.landedAt);
+    supplyLabel.textContent = landed ? 'SUPPLY DROP LANDED' : 'SUPPLY DROP INBOUND';
+    supplyTimer.textContent = landed ? 'PICK IT UP' : 'DESCENDING';
+    supplyMessage.textContent = 'Move onto the glowing crate';
+    return;
+  }
+  const seconds = Math.max(0, Math.ceil((nextSupplyDropAt - Date.now()) / 1000));
+  supplyLabel.textContent = 'NEXT SUPPLY DROP';
+  supplyTimer.textContent = `0:${String(seconds).padStart(2, '0')}`;
+  supplyMessage.textContent = '60% AK-47 · 40% RPG';
 }
 
 lobbyForm.addEventListener('submit', (event) => {
@@ -1147,6 +1670,7 @@ function finishRespawn(payload = {}) {
     hero.position.set(x, heightAt(x, z), z);
   }
   if (Number.isFinite(Number(payload.arrows))) state.arrows = Number(payload.arrows);
+  setLocalWeapon(payload.weapon || null, payload.weaponAmmo ?? 0);
   if (state.kit === 'bow') specialName.textContent = 'ARROWS ∞';
   deathScreen.hidden = true;
   respawnButton.disabled = true;
@@ -1182,6 +1706,42 @@ const abilityUI = {
   },
 };
 
+function setLocalWeapon(weapon, ammo = 0) {
+  const nextWeapon = weapon === 'ak47' || weapon === 'rpg' ? weapon : null;
+  const changed = state.weapon !== nextWeapon;
+  state.weapon = nextWeapon;
+  state.weaponAmmo = state.weapon === 'rpg'
+    ? clamp(Math.floor(Number(ammo) || 0), 0, 8)
+    : state.weapon === 'ak47'
+      ? clamp(Math.floor(Number(ammo) || 0), 0, 80)
+      : 0;
+  if (state.weapon !== 'ak47') automaticFireHeld = false;
+  state.bowDrawing = false;
+  if (changed) state.cooldowns.slash = 0;
+  const armed = Boolean(state.weapon);
+  rig.sword.visible = !armed && state.kit === 'sword';
+  rig.bow.visible = !armed && state.kit === 'bow';
+  rig.quiver.visible = !armed && state.kit === 'bow';
+  rig.hood.visible = state.kit === 'bow';
+  rig.ak47.visible = state.weapon === 'ak47';
+  rig.rpg.visible = state.weapon === 'rpg';
+  quickName.textContent = state.weapon === 'ak47' ? `AK-47 · ${state.weaponAmmo}` : state.weapon === 'rpg' ? `RPG · ${state.weaponAmmo}` : state.kit === 'bow' ? 'DRAW / FIRE' : 'QUICK SLASH';
+  ammoCounter.hidden = !armed;
+  if (armed) {
+    ammoWeapon.textContent = state.weapon === 'ak47' ? 'AK-47' : 'RPG';
+    ammoValue.textContent = String(state.weaponAmmo);
+    ammoUnit.textContent = state.weapon === 'ak47' ? 'ROUNDS' : 'ROCKETS';
+  }
+  specialName.textContent = armed ? 'SUPPLY WEAPON' : state.kit === 'bow' ? 'ARROWS ∞' : 'GROUND STRIKE';
+  abilityUI.slash.duration = state.weapon === 'ak47' ? .11 : state.weapon === 'rpg' ? 2.5 : state.kit === 'bow' ? 1 : .5;
+  abilityUI.heavy.slot.hidden = armed;
+  abilityUI.dash.slot.hidden = state.kit !== 'sword';
+  bowCrosshair.hidden = !(state.kit === 'bow' || armed);
+  aimHint.textContent = state.weapon === 'ak47' ? 'LMB · FIRE AK-47' : state.weapon === 'rpg' ? 'LMB · FIRE RPG' : 'HOLD LMB · RELEASE TO FIRE';
+  game.dataset.weapon = state.weapon || 'starter';
+  game.dataset.weaponAmmo = String(state.weaponAmmo);
+}
+
 const keys = new Set();
 let lookBack = false;
 window.addEventListener('keydown', (e) => {
@@ -1199,8 +1759,9 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyY' && !e.repeat) lookBack = !lookBack;
-  if (state.kit === 'sword' && e.code === 'Digit1' && !e.repeat) startAttack('slash');
-  if (state.kit === 'sword' && e.code === 'Digit2' && !e.repeat) startAttack('heavy');
+  if (state.weapon && e.code === 'Digit1' && !e.repeat) fireEquippedWeapon();
+  else if (state.kit === 'sword' && e.code === 'Digit1' && !e.repeat) startAttack('slash');
+  if (!state.weapon && state.kit === 'sword' && e.code === 'Digit2' && !e.repeat) startAttack('heavy');
   if (state.kit === 'sword' && e.code === 'KeyQ' && !e.repeat) startDash();
   if (e.code === 'Space' && state.grounded) {
     state.verticalVelocity = 7.4;
@@ -1216,6 +1777,7 @@ let camYaw = .28;
 let camPitch = .18;
 let camZoom = 8.55;
 let previousPointer = null;
+let automaticFireHeld = false;
 
 function lockPointerToGame() {
   if (document.pointerLockElement === renderer.domElement || !renderer.domElement.requestPointerLock) return;
@@ -1233,7 +1795,10 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   previousPointer = { x: e.clientX, y: e.clientY };
   if (e.button === 0) {
     lockPointerToGame();
-    if (state.kit === 'bow') {
+    if (state.weapon) {
+      automaticFireHeld = state.weapon === 'ak47';
+      fireEquippedWeapon();
+    } else if (state.kit === 'bow') {
       if (!state.bowDrawing && state.cooldowns.slash <= 0) {
         state.bowDrawing = true;
         state.bowDrawStart = performance.now();
@@ -1243,10 +1808,11 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     e.stopPropagation();
     lockPointerToGame();
-    if (state.kit === 'sword') startAttack('heavy');
+    if (!state.weapon && state.kit === 'sword') startAttack('heavy');
   }
 });
 window.addEventListener('pointerup', (e) => {
+  if (e.button === 0) automaticFireHeld = false;
   if (e.button === 0 && state.bowDrawing) fireBow();
 });
 renderer.domElement.addEventListener('pointermove', (e) => {
@@ -1262,12 +1828,13 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   previousPointer = { x: e.clientX, y: e.clientY };
 });
 renderer.domElement.addEventListener('pointerleave', () => { previousPointer = null; });
+window.addEventListener('blur', () => { automaticFireHeld = false; });
 document.addEventListener('pointerlockchange', () => { previousPointer = null; });
 renderer.domElement.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   e.stopPropagation();
   lockPointerToGame();
-  if (state.kit === 'sword') startAttack('heavy');
+  if (!state.weapon && state.kit === 'sword') startAttack('heavy');
 });
 renderer.domElement.addEventListener('auxclick', (e) => e.preventDefault());
 renderer.domElement.addEventListener('wheel', (e) => {
@@ -1277,7 +1844,7 @@ renderer.domElement.addEventListener('wheel', (e) => {
 let shake = 0;
 function addShake(amount) { shake = Math.max(shake, amount); }
 function startAttack(type) {
-  if (!state.joined || state.kit !== 'sword' || state.dead || state.attack || !state.grounded || state.cooldowns[type] > 0 || currentMatch?.ended) return false;
+  if (!state.joined || state.weapon || state.kit !== 'sword' || state.dead || state.attack || !state.grounded || state.cooldowns[type] > 0 || currentMatch?.ended) return false;
   state.attack = type;
   state.attackTime = 0;
   state.attackImpact = false;
@@ -1342,15 +1909,60 @@ function solveCrosshairShot(strength) {
   };
 }
 
+const weaponAimRaycaster = new THREE.Raycaster();
+const weaponAimObjects = [];
+const weaponAimDirection = new THREE.Vector3();
+const weaponMuzzleOrigin = new THREE.Vector3();
+const weaponShotDirection = new THREE.Vector3();
+function fireEquippedWeapon() {
+  if (!state.weapon || state.dead || state.cooldowns.slash > 0 || currentMatch?.ended) return false;
+  if (state.weaponAmmo <= 0) {
+    setLocalWeapon(null, 0);
+    return false;
+  }
+  const firedWeapon = state.weapon;
+  const range = firedWeapon === 'rpg' ? 240 : 260;
+  camera.getWorldDirection(weaponAimDirection).normalize();
+  const cameraRayOrigin = camera.position.clone().addScaledVector(weaponAimDirection, 1.15);
+  weaponAimObjects.length = 0;
+  weaponAimObjects.push(...collisionMeshes);
+  remotePlayers.forEach((remote) => {
+    if (!remote.dead && remote.team !== state.team) weaponAimObjects.push(remote.group);
+  });
+  weaponAimRaycaster.set(cameraRayOrigin, weaponAimDirection);
+  weaponAimRaycaster.far = range;
+  const hit = weaponAimRaycaster.intersectObjects(weaponAimObjects, true)[0];
+  const target = hit?.point?.clone() || cameraRayOrigin.clone().addScaledVector(weaponAimDirection, range);
+  hero.updateMatrixWorld(true);
+  const muzzle = firedWeapon === 'ak47' ? rig.ak47.userData.muzzle : rig.rpg.userData.muzzle;
+  const origin = muzzle?.getWorldPosition(weaponMuzzleOrigin) || cameraRayOrigin;
+  weaponShotDirection.copy(target).sub(origin).normalize();
+  state.cooldowns.slash = firedWeapon === 'rpg' ? 2.5 : .11;
+  state.attackSerial += 1;
+  state.weaponKick = 1;
+  multiplayerSocket?.emit('weaponFire', {
+    weapon: firedWeapon,
+    serial: state.attackSerial,
+    origin: { x: origin.x, y: origin.y, z: origin.z },
+    direction: { x: weaponShotDirection.x, y: weaponShotDirection.y, z: weaponShotDirection.z },
+    target: { x: target.x, y: target.y, z: target.z },
+  });
+  addShake(firedWeapon === 'rpg' ? .23 : .055);
+  playSupplyWeaponSound(firedWeapon);
+  const remaining = Math.max(0, state.weaponAmmo - 1);
+  setLocalWeapon(remaining > 0 ? firedWeapon : null, remaining);
+  return true;
+}
+
 function updateBowAiming() {
-  const canAim = state.joined && state.kit === 'bow' && !state.dead && !currentMatch?.ended;
+  const canAim = state.joined && (state.kit === 'bow' || state.weapon) && !state.dead && !currentMatch?.ended;
   bowCrosshair.hidden = !canAim;
   const drawStrength = state.bowDrawing ? clamp((performance.now() - state.bowDrawStart) / 1150, 0, 1) : 0;
   bowCrosshair.classList.toggle('drawing', state.bowDrawing);
   bowCrosshair.style.setProperty('--draw', drawStrength.toFixed(3));
   game.dataset.aimStrength = drawStrength.toFixed(2);
 
-  rig.nockedArrow.visible = canAim && state.bowDrawing;
+  rig.nockedArrow.visible = canAim && !state.weapon && state.bowDrawing;
   rig.nockedArrow.position.z = -.34 * drawStrength;
   const string = rig.bow.userData.string;
   string.geometry.setFromPoints([
@@ -1401,12 +2013,23 @@ function createRemoteHealthDisplay(id, name, team) {
   const element = document.createElement('div');
   element.className = 'remote-health-tag';
   element.dataset.playerId = id;
-  element.innerHTML = `<span class="remote-player-name ${team}">${name}</span><span class="remote-health-value">100 HP</span><span class="remote-health-track"><span class="remote-health-fill"></span></span>`;
+  const nameLabel = document.createElement('span');
+  nameLabel.className = `remote-player-name ${team}`;
+  nameLabel.textContent = name;
+  const healthValue = document.createElement('span');
+  healthValue.className = 'remote-health-value';
+  healthValue.textContent = '100 HP';
+  const healthTrack = document.createElement('span');
+  healthTrack.className = 'remote-health-track';
+  const healthFill = document.createElement('span');
+  healthFill.className = 'remote-health-fill';
+  healthTrack.append(healthFill);
+  element.append(nameLabel, healthValue, healthTrack);
   document.body.appendChild(element);
   return {
     element,
-    value: element.querySelector('.remote-health-value'),
-    fill: element.querySelector('.remote-health-fill'),
+    value: healthValue,
+    fill: healthFill,
   };
 }
 
@@ -1460,18 +2083,29 @@ function createRemoteCharacter(snapshot) {
   const remoteSword = createSword();
   remoteSword.scale.setScalar(.76);
   remoteSword.position.set(0, .01, .055);
-  remoteSword.visible = kit === 'sword';
+  remoteSword.visible = kit === 'sword' && !snapshot.weapon;
   rightArm.hand.add(remoteSword);
   const remoteBow = createBow();
   remoteBow.scale.setScalar(.9);
   remoteBow.rotation.z = -.08;
-  remoteBow.visible = kit === 'bow';
+  remoteBow.visible = kit === 'bow' && !snapshot.weapon;
   leftArm.hand.add(remoteBow);
   const remoteQuiver = createQuiver();
   remoteQuiver.position.set(.38, 2.35, -.35);
   remoteQuiver.rotation.z = -.18;
-  remoteQuiver.visible = kit === 'bow';
+  remoteQuiver.visible = kit === 'bow' && !snapshot.weapon;
   group.add(remoteQuiver);
+  const remoteAK47 = createAK47();
+  remoteAK47.scale.setScalar(.76);
+  remoteAK47.position.set(0, -.015, .05);
+  remoteAK47.rotation.set(0, 0, -.015);
+  remoteAK47.visible = snapshot.weapon === 'ak47';
+  rightArm.hand.add(remoteAK47);
+  setAKRestTransform(remoteAK47);
+  const remoteRPG = createRPG();
+  remoteRPG.scale.setScalar(.68);
+  remoteRPG.visible = snapshot.weapon === 'rpg';
+  rightArm.hand.add(remoteRPG);
 
   function makeRemoteLeg(side) {
     const pivot = new THREE.Group();
@@ -1512,9 +2146,16 @@ function createRemoteCharacter(snapshot) {
     name,
     team,
     kit,
+    weapon: snapshot.weapon || null,
+    weaponAmmo: Number(snapshot.weaponAmmo) || 0,
     group,
     torso,
     rightArm,
+    remoteSword,
+    remoteBow,
+    remoteQuiver,
+    remoteAK47,
+    remoteRPG,
     leftArm,
     leftLeg,
     rightLeg,
@@ -1534,10 +2175,22 @@ function createRemoteCharacter(snapshot) {
     healthDisplay,
     damageAura,
     damageFlash: 0,
+    weaponKick: 0,
     dead: false,
   };
   setRemoteHealth(remote, snapshot.health ?? remote.maxHealth);
   return remote;
+}
+
+function setRemoteWeapon(remote, weapon, ammo = 0) {
+  if (!remote) return;
+  remote.weapon = weapon === 'ak47' || weapon === 'rpg' ? weapon : null;
+  remote.weaponAmmo = remote.weapon ? Number(ammo) || 0 : 0;
+  remote.remoteSword.visible = !remote.weapon && remote.kit === 'sword';
+  remote.remoteBow.visible = !remote.weapon && remote.kit === 'bow';
+  remote.remoteQuiver.visible = !remote.weapon && remote.kit === 'bow';
+  remote.remoteAK47.visible = remote.weapon === 'ak47';
+  remote.remoteRPG.visible = remote.weapon === 'rpg';
 }
 
 function removeRemotePlayer(id) {
@@ -1565,6 +2218,7 @@ function upsertRemotePlayer(snapshot) {
   remote.dashing = Boolean(snapshot.dashing);
   remote.grounded = snapshot.grounded !== false;
   remote.verticalVelocity = Number(snapshot.verticalVelocity) || 0;
+  if (Object.prototype.hasOwnProperty.call(snapshot, 'weapon')) setRemoteWeapon(remote, snapshot.weapon, snapshot.weaponAmmo);
   if (Number.isFinite(Number(snapshot.maxHealth))) remote.maxHealth = Number(snapshot.maxHealth);
   if (Number.isFinite(Number(snapshot.health))) setRemoteHealth(remote, snapshot.health);
   if (snapshot.attack && snapshot.attackSerial > remote.attackSerial) {
@@ -1602,6 +2256,7 @@ function handlePlayerRespawned(payload) {
   remote.group.rotation.x = 0;
   remote.damageFlash = 0;
   setRemoteHealth(remote, payload.health ?? 100);
+  setRemoteWeapon(remote, payload.weapon || null);
 }
 
 function playRemoteAttack(payload) {
@@ -1716,6 +2371,17 @@ function updateRemotePlayers(dt) {
       handZ = .7;
     }
 
+    remote.weaponKick = damp(remote.weaponKick, 0, 16, dt);
+    if (remote.weapon) {
+      const weaponBob = remote.moving ? Math.sin(remote.gait * 2) * .025 : 0;
+      rightArmX = -1.14 + weaponBob - remote.weaponKick * .07;
+      rightArmZ = -.22;
+      handX = 3.57 - remote.weaponKick * .1;
+      handZ = .06 - remote.weaponKick * .035;
+      torsoTurn = -.08;
+      remote.leftArm.pivot.rotation.x = damp(remote.leftArm.pivot.rotation.x, -1.18 + weaponBob, 18, dt);
+    }
+
     if (remote.attack) {
       remote.attackTime += dt;
       const heavy = remote.attack === 'heavy';
@@ -1771,6 +2437,7 @@ function updateRemotePlayers(dt) {
     remote.rightArm.hand.rotation.z = damp(remote.rightArm.hand.rotation.z, handZ, 34, dt);
     remote.torso.rotation.y = damp(remote.torso.rotation.y, torsoTurn, 20, dt);
     remote.torso.rotation.x = damp(remote.torso.rotation.x, torsoX, 20, dt);
+    updateAKAnimation(remote.remoteAK47, remote.weapon === 'ak47' ? remote.weaponKick : 0, performance.now() * .001);
   });
 }
 
@@ -1835,10 +2502,44 @@ function connectMultiplayer() {
     lobbyStatus.classList.add('error');
   });
   multiplayerSocket.on('worldSnapshot', (players) => players.forEach(upsertRemotePlayer));
+  multiplayerSocket.on('supplyDropSnapshot', (drops) => {
+    supplyDropObjects.forEach((drop) => scene.remove(drop.group));
+    supplyDropObjects.clear();
+    (drops || []).forEach(createSupplyDropObject);
+  });
+  multiplayerSocket.on('supplyDropSpawned', (drop) => {
+    createSupplyDropObject(drop);
+    nextSupplyDropAt = Number(drop.spawnedAt) + 20_000;
+    supplyMessage.textContent = `${drop.weapon === 'rpg' ? 'RPG' : 'AK-47'} inbound`;
+  });
+  multiplayerSocket.on('supplyDropPicked', (payload) => {
+    removeSupplyDropObject(payload.dropId);
+    if (payload.playerId === multiplayerSocket.id) setLocalWeapon(payload.weapon, payload.ammo);
+    else setRemoteWeapon(remotePlayers.get(payload.playerId), payload.weapon, payload.ammo);
+    supplyLabel.textContent = payload.playerId === multiplayerSocket.id ? 'SUPPLY WEAPON EQUIPPED' : 'SUPPLY DROP CLAIMED';
+    supplyTimer.textContent = payload.weapon === 'rpg' ? 'RPG' : 'AK-47';
+  });
+  multiplayerSocket.on('supplyDropExpired', ({ dropId }) => removeSupplyDropObject(dropId));
+  multiplayerSocket.on('supplyDropReset', (payload) => {
+    supplyDropObjects.forEach((drop) => scene.remove(drop.group));
+    supplyDropObjects.clear();
+    nextSupplyDropAt = Number(payload?.nextSupplyDropAt) || Date.now() + 20_000;
+  });
+  multiplayerSocket.on('playerWeaponChanged', (payload) => {
+    if (payload.id === multiplayerSocket.id) setLocalWeapon(payload.weapon, payload.ammo);
+    else setRemoteWeapon(remotePlayers.get(payload.id), payload.weapon, payload.ammo);
+  });
   multiplayerSocket.on('playerJoined', upsertRemotePlayer);
   multiplayerSocket.on('playerState', upsertRemotePlayer);
   multiplayerSocket.on('playerAttack', playRemoteAttack);
   multiplayerSocket.on('playerShoot', spawnArrowProjectile);
+  multiplayerSocket.on('weaponFired', (payload) => {
+    const remoteShooter = remotePlayers.get(payload.id);
+    if (remoteShooter && payload.weapon === 'ak47') remoteShooter.weaponKick = 1;
+    if (payload.weapon === 'rpg') spawnRocket(payload);
+    else spawnTracer(payload);
+  });
+  multiplayerSocket.on('rpgExploded', spawnRPGExplosion);
   multiplayerSocket.on('playerDamaged', handlePlayerDamaged);
   multiplayerSocket.on('playerDied', handlePlayerDied);
   multiplayerSocket.on('playerRespawned', handlePlayerRespawned);
@@ -1917,11 +2618,11 @@ function updateMovement(dt) {
     const dashBlend = clamp(state.dashTime / .27, 0, 1);
     const dashSpeed = 15 + dashBlend * 9;
     state.velocity.copy(state.dashDirection).multiplyScalar(dashSpeed);
-    hero.position.addScaledVector(state.velocity, dt);
+    moveHeroWithCollisions(state.velocity.x * dt, state.velocity.z * dt, state.velocity);
     const radius = Math.hypot(hero.position.x, hero.position.z);
-    if (radius > 76) {
-      hero.position.x *= 76 / radius;
-      hero.position.z *= 76 / radius;
+    if (radius > 145) {
+      hero.position.x *= 145 / radius;
+      hero.position.z *= 145 / radius;
     }
     hero.position.y = heightAt(hero.position.x, hero.position.z);
     hero.rotation.y = Math.atan2(state.dashDirection.x, state.dashDirection.z);
@@ -1961,12 +2662,11 @@ function updateMovement(dt) {
   const planarSpeed = Math.hypot(state.velocity.x, state.velocity.z);
   hero.rotation.y = camYaw;
 
-  hero.position.x += state.velocity.x * dt;
-  hero.position.z += state.velocity.z * dt;
+  moveHeroWithCollisions(state.velocity.x * dt, state.velocity.z * dt, state.velocity);
   const radius = Math.hypot(hero.position.x, hero.position.z);
-  if (radius > 76) {
-    hero.position.x *= 76 / radius;
-    hero.position.z *= 76 / radius;
+  if (radius > 145) {
+    hero.position.x *= 145 / radius;
+    hero.position.z *= 145 / radius;
   }
 
   const groundY = heightAt(hero.position.x, hero.position.z);
@@ -2094,6 +2794,24 @@ function updateAnimation(dt, time, speed) {
     rightLegX = .16;
     leftKneeX = crouch * 1.8;
     rightKneeX = crouch * 1.55;
+  }
+
+  state.weaponKick = damp(state.weaponKick, 0, 16, dt);
+  if (state.weapon) {
+    const weaponBob = moveBlend * Math.sin(state.gait * 2) * .025;
+    torsoX = -.045;
+    torsoTurn = -.08;
+    headY = .06;
+    leftArmX = -1.18 + weaponBob;
+    leftArmZ = .25;
+    leftElbowX = -.62;
+    rightArmX = -1.14 + weaponBob - state.weaponKick * .07;
+    rightArmZ = -.22;
+    rightElbowX = -.88;
+    swordX = 3.57 - state.weaponKick * .1;
+    swordY = 0;
+    swordZ = .06 - state.weaponKick * .035;
+    torsoX -= state.weaponKick * .025;
   }
 
   if (state.bowDrawing) {
@@ -2226,6 +2944,7 @@ function updateAnimation(dt, time, speed) {
   rig.rightArm.hand.rotation.x = damp(rig.rightArm.hand.rotation.x, swordX, wristSpeed, dt);
   rig.rightArm.hand.rotation.y = damp(rig.rightArm.hand.rotation.y, swordY, wristSpeed, dt);
   rig.rightArm.hand.rotation.z = damp(rig.rightArm.hand.rotation.z, swordZ, wristSpeed, dt);
+  updateAKAnimation(rig.ak47, state.weapon === 'ak47' ? state.weaponKick : 0, time);
   rig.shadowDisc.material.opacity = damp(rig.shadowDisc.material.opacity, state.grounded ? .17 : .07, 8, dt);
   rig.shadowDisc.scale.setScalar(damp(rig.shadowDisc.scale.x, state.grounded ? 1 : .75, 8, dt));
   const fallTarget = state.dead ? 1.48 : 0;
@@ -2234,7 +2953,7 @@ function updateAnimation(dt, time, speed) {
 }
 
 function updateCamera(dt) {
-  const bowCamera = state.kit === 'bow';
+  const bowCamera = state.kit === 'bow' || Boolean(state.weapon);
   const viewYaw = camYaw + (lookBack ? Math.PI : 0);
   camera.fov = damp(camera.fov, bowCamera ? 48 : state.sprinting ? 53 : 48, 4.5, dt);
   camera.updateProjectionMatrix();
@@ -2297,15 +3016,25 @@ function animate() {
   const dt = Math.min(clock.getDelta(), .04);
   elapsed += dt;
   updateCooldowns(dt);
+  if (automaticFireHeld && state.weapon === 'ak47') fireEquippedWeapon();
   const speed = updateMovement(dt);
   updateMovementAudio(dt);
   updateAnimation(dt, elapsed, speed);
   updateGroundImpact(dt);
   updateArrows(dt);
+  updateSupplyDrops();
+  updateTeamSpawnSigns(elapsed);
+  updateSupplyProjectiles(dt);
   updateRemotePlayers(dt);
   sendMultiplayerState(dt);
   updateCamera(dt);
   updateBowAiming();
+  updateSupplyHUD();
+
+  if (state.joined) {
+    sun.position.set(hero.position.x - 34, hero.position.y + 46, hero.position.z - 28);
+    sun.target.position.set(hero.position.x, hero.position.y + 1.2, hero.position.z);
+  }
 
   if (state.dead && state.respawnAt) {
     const seconds = Math.max(0, Math.ceil((state.respawnAt - Date.now()) / 1000));
@@ -2315,7 +3044,7 @@ function animate() {
   if (grassMaterial.userData.shader) grassMaterial.userData.shader.uniforms.uTime.value = elapsed;
   clouds.forEach((cloud, i) => {
     cloud.position.x += dt * (.28 + i * .07);
-    if (cloud.position.x > 75) cloud.position.x = -75;
+    if (cloud.position.x > 145) cloud.position.x = -145;
   });
 
   fpsFrames++;

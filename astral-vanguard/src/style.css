@@ -110,6 +110,37 @@ canvas {
   filter: drop-shadow(0 7px 14px rgba(0, 0, 0, .46));
 }
 
+.ammo-counter {
+  position: fixed;
+  z-index: 74;
+  left: 50%;
+  bottom: 105px;
+  min-width: 126px;
+  padding: 7px 13px 6px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(246, 207, 116, .5);
+  border-radius: 7px;
+  background: linear-gradient(145deg, rgba(38, 44, 47, .94), rgba(10, 15, 19, .96));
+  box-shadow: 0 7px 18px rgba(0, 0, 0, .42), inset 0 0 16px rgba(231, 178, 69, .05);
+  color: #f8e6b7;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ammo-counter span,
+.ammo-counter small {
+  color: rgba(255, 240, 203, .58);
+  font: 850 8px/1 system-ui, sans-serif;
+  letter-spacing: .13em;
+}
+
+.ammo-counter strong {
+  margin: 0 7px;
+  color: #fff4cf;
+  font: 900 22px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-shadow: 0 0 12px rgba(255, 197, 74, .28);
+}
+
 .ability-slot {
   position: relative;
   width: 102px;
@@ -485,6 +516,26 @@ canvas {
 .match-clock span { color: rgba(255,255,255,.42); font-size: 7px; font-weight: 900; letter-spacing: .13em; }
 .match-clock strong { font: 850 14px/1 ui-monospace, monospace; }
 
+.supply-status {
+  position: fixed;
+  z-index: 71;
+  top: 18px;
+  left: 20px;
+  min-width: 190px;
+  padding: 10px 13px;
+  border: 1px solid rgba(237, 190, 91, .35);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(47, 42, 25, .9), rgba(10, 15, 20, .88));
+  box-shadow: 0 8px 26px rgba(0,0,0,.34), inset 0 0 22px rgba(216, 158, 53, .05);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.supply-status span, .supply-status small { display: block; color: rgba(255,240,202,.5); font-size: 8px; font-weight: 900; letter-spacing: .13em; }
+.supply-status strong { display: block; margin: 3px 0; color: #ffd783; font: 900 17px/1 ui-monospace,monospace; text-shadow: 0 0 12px rgba(255,179,55,.28); }
+.supply-status small { color: rgba(255,255,255,.36); letter-spacing: .06em; }
+.supply-status.active { border-color: rgba(255,205,100,.7); animation: supply-pulse 1.2s ease-in-out infinite alternate; }
+@keyframes supply-pulse { to { box-shadow: 0 8px 28px rgba(0,0,0,.4), 0 0 18px rgba(255,178,49,.18); } }
+
 .player-board {
   position: fixed;
   z-index: 72;
@@ -586,13 +637,16 @@ canvas {
 body.in-lobby .hud,
 body.in-lobby .action-bar,
 body.in-lobby .scoreboard,
+body.in-lobby .supply-status,
 body.in-lobby .player-board,
+body.in-lobby .ammo-counter,
 body.in-lobby .vignette { display: none !important; }
 
 @media (max-width: 600px) {
   .meter { left: 18px; width: min(240px, calc(100vw - 36px)); }
   .fps { right: 18px; }
   .action-bar { bottom: 62px; }
+  .ammo-counter { bottom: 147px; }
   .ability-slot { width: 88px; height: 65px; }
   .lobby-card { padding: 22px 18px; }
   .selection-grid { grid-template-columns: 1fr; }

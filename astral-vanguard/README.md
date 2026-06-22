@@ -8,9 +8,15 @@ A stylized Three.js team arena with a Node.js + Socket.io authoritative multipla
 2. Choose Bloods (red, west spawn) or Crips (blue, east spawn).
 3. Choose the Sword or Bow starter kit.
 4. Join the shared match.
+
+Display names have no word filter and support Unicode, spaces, punctuation, and symbols up to 24 characters. Only invisible control characters are removed so names cannot break the game UI.
 5. The first team to 25 eliminations wins; a ten-minute match timer breaks on the higher score or a draw.
 
+The Bloods and Crips enter from opposite sides of the battlefield. Large floating `BLOODS` and `CRIPS` signs identify each team side without revealing the precise player spawn position.
+
 The Sword Kit has 120 health, 150 stamina, powerful short-range attacks, a greatsword, and a dash that costs 5 stamina. The Bow Kit has 85 health, 100 stamina, infinite arrows, a one-second firing cooldown, hold-to-draw shooting, fast straight projectiles with no drop, full-arena crosshair-accurate range, and damage that lands when the arrow arrives and scales with draw strength. Moving clear of the impact line before arrival dodges the shot.
+
+The battlefield is a large 320-unit sandbox with broad hills, extended grass, solid collision on trees and every rock, scattered small stones, atmospheric fog, and a playable radius of 145 units. A server-authoritative supply crate descends by parachute every 20 seconds near the active players' average position, biased toward the middle and capped inside the central region. Each crate contains an AK-47 with 80 bullets 60% of the time and an RPG with 8 rockets 40% of the time. Walk onto a landed crate to replace any currently held supply weapon with the new drop. Holding left click sprays the 12-damage AK-47 automatically, with a two-hand firing stance, recoil, bolt movement, muzzle flash, and visible bullets travelling from the barrel; the bottom ammo counter shows remaining rounds or rockets. When supply ammo reaches zero, the weapon disappears and the original sword or bow returns. RPG rockets travel quickly and produce a very large 18-unit radial blast, stronger camera shake, a fast expanding shockwave, smoke, and dense ground debris.
 
 ## Controls
 
@@ -26,6 +32,8 @@ The Sword Kit has 120 health, 150 stamina, powerful short-range attacks, a great
 - Sword right click / 2: ground strike
 - Sword Q: knight dash
 - Bow hold left click: draw; release to fire
+- Supply weapon left click / 1: fire the equipped AK-47 or RPG
+- Supply pickups replace the starter weapon until death/respawn
 - Tab: player kills/deaths standings
 
 The top-right player board always lists everyone currently in the shared match with their team color and kit. Bow players remain in a true elevated right-shoulder view while idle, moving, drawing, firing, and recovering, with the camera looking directly along the center crosshair firing ray.
@@ -86,4 +94,4 @@ The Render deployment does not need this variable because the Node server hosts 
 
 ## Networking
 
-The server owns lobby admission, identity, teams, kits, spawns, health, ammo, damage, deaths, respawns, kills, scores, match time, wins, and rematches. Clients send movement snapshots and attack intent. Remote movement is interpolated, while reliable Socket.io events synchronize attacks, arrows, damage, match state, and player lifecycle.
+The server owns lobby admission, identity, teams, kits, spawns, supply-drop timing and weighted loot, pickup ownership, equipped weapons, projectile timing, explosions, health, ammo, damage, deaths, respawns, kills, scores, match time, wins, and rematches. Clients send movement snapshots and attack intent. Remote movement is interpolated, while reliable Socket.io events synchronize supply drops, loadouts, attacks, arrows, rockets, explosions, damage, match state, and player lifecycle.
